@@ -1,0 +1,160 @@
+# =========================
+
+# Python
+
+# =========================
+
+**pycache**/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# =========================
+
+# Virtual Environment
+
+# =========================
+
+venv/
+env/
+ENV/
+.venv/
+
+# =========================
+
+# Django
+
+# =========================
+
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Django media/uploads (user-generated files)
+
+media/
+
+# Collected static files (if using collectstatic)
+
+staticfiles/
+
+# =========================
+
+# Environment Variables
+
+# =========================
+
+.env
+.env.*
+!.env.example
+
+# =========================
+
+# Migrations (optional — keep if working in team)
+
+# =========================
+
+# Uncomment ONLY if you don't want migrations tracked
+
+# */migrations/*
+
+# !*/migrations/**init**.py
+
+# =========================
+
+# IDE / Editor
+
+# =========================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================
+
+# OS Files
+
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+
+# Testing / Coverage
+
+# =========================
+
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# =========================
+
+# Type checkers / linters
+
+# =========================
+
+.mypy_cache/
+.dmypy.json
+ruff_cache/
+
+# =========================
+
+# Node (if using frontend like React / Next.js inside Django)
+
+# =========================
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+
+# Build / Static Tooling
+
+# =========================
+
+dist/
+.cache/
+
+# =========================
+
+# Secrets / Keys
+
+# =========================
+
+*.pem
+*.key
+*.crt
+
+# =========================
+
+# Docker (if used)
+
+# =========================
+
+docker-compose.override.yml
