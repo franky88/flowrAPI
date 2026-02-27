@@ -20,7 +20,7 @@ from finance.serializers import (
     AccountMonthConfigSerializer, AccountSerializer, BudgetSerializer,
     CategorySerializer, TransactionSerializer
 )
-from finance.services import _get_opening_and_income_base, compute_budget_rows, compute_kpis_for_range, get_clerk_user
+from finance.services import _get_opening_and_income_base, compute_budget_rows, compute_kpis_for_range, get_clerk_user, get_intelligence_report
 from finance.utils import month_range, pct_change, prev_month_yyyymm, q2
 from rest_framework.decorators import action
 from dateutil.relativedelta import relativedelta
@@ -781,3 +781,16 @@ class BudgetPeriodView(PlanEnforcementMixin, APIView):
             "periodRatio": f"{period_ratio:.4f}",
             "rows": rows,
         })
+    
+class IntelligenceView(WorkspaceMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, workspace_id):
+        workspace = self.get_workspace()
+        month = request.query_params.get("month")
+        if not month:
+            raise ValidationError("month is required (YYYY-MM)")
+
+        account_id = request.query_params.get("accountId") or None
+        data = get_intelligence_report(workspace, month, account_id)
+        return Response(data)

@@ -19,4 +19,5 @@ urlpatterns = [
     path("workspaces/<uuid:workspace_id>/reports/budget-monitor/", views.BudgetMonitorView.as_view()),
     path("workspaces/<uuid:workspace_id>/reports/dashboard/", views.DashboardReportView.as_view()),
     path("workspaces/<uuid:workspace_id>/reports/budget-period/", views.BudgetPeriodView.as_view()),
+    path("workspaces/<uuid:workspace_id>/intelligence/", views.IntelligenceView.as_view()),
 ]
