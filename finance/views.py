@@ -249,7 +249,7 @@ class CategoryViewSet(PlanEnforcementMixin, WorkspaceMixin, viewsets.ModelViewSe
         instance.delete()
 
 
-class TransactionViewSet(WorkspaceMixin, viewsets.ModelViewSet):
+class TransactionViewSet(PlanEnforcementMixin, WorkspaceMixin, viewsets.ModelViewSet):
     serializer_class = TransactionSerializer
     permission_classes = [IsAuthenticated]
 
@@ -264,6 +264,7 @@ class TransactionViewSet(WorkspaceMixin, viewsets.ModelViewSet):
 
         month = self.request.query_params.get("month")
         if month:
+            self.enforcer.check_can_access_month(month)  # check BEFORE filtering
             start, end = month_range(month)
             qs = qs.filter(date__gte=start, date__lt=end)
 
@@ -279,10 +280,17 @@ class TransactionViewSet(WorkspaceMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         workspace = self.get_workspace(require_editor=True)
+        date = serializer.validated_data.get("date")
+        if date:
+            month = date.strftime("%Y-%m")
+            self.enforcer.check_can_access_month(month)  # block writes outside history window
         serializer.save(workspace=workspace, created_by=self.request.user.id)
 
     def perform_update(self, serializer):
         self.get_workspace(require_editor=True)
+        if "date" in serializer.validated_data:
+            month = serializer.validated_data["date"].strftime("%Y-%m")
+            self.enforcer.check_can_access_month(month)
         serializer.save()
 
     def perform_destroy(self, instance):
