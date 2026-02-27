@@ -48,10 +48,7 @@ def _get_opening_and_income_base(
     month: str,
     account_id: str | None,
 ) -> tuple[Decimal, Decimal]:
-    start, end = month_range(month)
-    money = DecimalField(max_digits=12, decimal_places=2)
 
-    # Opening balance — still manual from AccountMonthConfig
     if account_id:
         cfg = AccountMonthConfig.objects.filter(
             workspace=workspace,
@@ -59,29 +56,17 @@ def _get_opening_and_income_base(
             account_id=account_id,
         ).first()
         opening = cfg.opening_balance if cfg else Decimal("0.00")
+        income_base = cfg.income_base if cfg else Decimal("0.00")
     else:
         agg = AccountMonthConfig.objects.filter(
             workspace=workspace,
             month=month,
         ).aggregate(
             total_opening=Coalesce(Sum("opening_balance"), Decimal("0.00")),
+            total_income_base=Coalesce(Sum("income_base"), Decimal("0.00")),
         )
         opening = agg["total_opening"] or Decimal("0.00")
-
-    # Income base — computed live from INCOME transactions
-    tx_qs = Transaction.objects.filter(
-        workspace=workspace,
-        date__gte=start,
-        date__lt=end,
-        type=TxType.INCOME,
-    )
-    if account_id:
-        tx_qs = tx_qs.filter(account_id=account_id)
-
-    result = tx_qs.aggregate(
-        total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=money)
-    )
-    income_base = result["total"] or Decimal("0.00")
+        income_base = agg["total_income_base"] or Decimal("0.00")
 
     return opening, income_base
 

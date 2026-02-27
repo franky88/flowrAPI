@@ -74,6 +74,7 @@ class AccountMonthConfigSerializer(serializers.ModelSerializer):
             "id",
             "month",
             "account",
+            "income_base",
             "opening_balance",
             "created_at",
             "updated_at",

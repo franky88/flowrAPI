@@ -421,6 +421,7 @@ class AccountMonthConfigView(APIView):
 
         try:
             opening_balance = Decimal(str(request.data.get("opening_balance", "0.00")))
+            income_base = Decimal(str(request.data.get("income_base", "0.00")))
         except Exception:
             raise ValidationError("opening_balance must be a valid decimal.")
 
@@ -428,7 +429,7 @@ class AccountMonthConfigView(APIView):
             workspace=workspace,
             month=month,
             account_id=account_id,
-            defaults={"opening_balance": opening_balance},
+            defaults={"opening_balance": opening_balance, "income_base": income_base, },
         )
 
         return Response(AccountMonthConfigSerializer(obj).data)
