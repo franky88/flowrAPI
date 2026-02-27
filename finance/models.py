@@ -150,7 +150,7 @@ class AccountMonthConfig(TimeStampedModel):
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="account_month_configs")
     month = models.CharField(max_length=7, validators=[MONTH_VALIDATOR])
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="month_configs")
-    income_base = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # income_base = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     opening_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     class Meta:

@@ -2,7 +2,8 @@ from decimal import Decimal
 from rest_framework import serializers
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
-from finance.models import Account, AccountMonthConfig, Budget, BudgetRuleType, Category, Transaction
+from finance.models import Account, AccountMonthConfig, Budget, BudgetRuleType, Category, Transaction, TxType
+from finance.utils import month_range
 
 
 class AccountSerializer(serializers.ModelSerializer):
@@ -73,7 +74,6 @@ class AccountMonthConfigSerializer(serializers.ModelSerializer):
             "id",
             "month",
             "account",
-            "income_base",
             "opening_balance",
             "created_at",
             "updated_at",
@@ -130,12 +130,6 @@ class BudgetSerializer(serializers.ModelSerializer):
         return category
 
     def get_resolved_amount(self, obj: Budget):
-        """
-        Resolves budget amount using workspace income_base.
-        - fixed  → return value as-is
-        - percent → sum income_base across all accounts in workspace for that month,
-                    optionally filtered by accountId query param
-        """
         workspace = self.context.get("workspace")
         if not workspace:
             return None
@@ -150,13 +144,19 @@ class BudgetSerializer(serializers.ModelSerializer):
             else None
         )
 
-        qs = AccountMonthConfig.objects.filter(workspace=workspace, month=obj.month)
+        start, end = month_range(obj.month)
 
+        tx_qs = Transaction.objects.filter(
+            workspace=workspace,
+            date__gte=start,
+            date__lt=end,
+            type=TxType.INCOME,
+        )
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            tx_qs = tx_qs.filter(account_id=account_id)
 
-        base = qs.aggregate(
-            total=Coalesce(Sum("income_base"), Decimal("0.00"))
-        )["total"]
+        base = tx_qs.aggregate(
+            total=Coalesce(Sum("amount"), Decimal("0.00"))
+        )["total"] or Decimal("0.00")
 
         return (Decimal(str(base)) * (obj.value / Decimal("100"))).quantize(Decimal("0.01"))

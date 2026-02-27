@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from datetime import datetime
+from datetime import date, datetime
 
 from django.db.models import Sum, Case, When, Value, DecimalField
 from django.db.models.functions import Coalesce
@@ -11,8 +11,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 
+from billing.exceptions import PlanEnforcementMixin
 from finance.models import (
-    Account, AccountMonthConfig, Budget, Category,
+    Account, AccountMonthConfig, Budget, BudgetRuleType, Category,
     Transaction, TxType, Workspace, WorkspaceMember, WorkspaceRole
 )
 from finance.serializers import (
@@ -199,7 +200,7 @@ class WorkspaceMemberView(APIView):
 # Core ViewSets
 # ---------------------------------------------------------------------------
 
-class AccountViewSet(WorkspaceMixin, viewsets.ModelViewSet):
+class AccountViewSet(PlanEnforcementMixin, WorkspaceMixin, viewsets.ModelViewSet):
     serializer_class = AccountSerializer
     permission_classes = [IsAuthenticated]
 
@@ -209,6 +210,7 @@ class AccountViewSet(WorkspaceMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         workspace = self.get_workspace(require_editor=True)
+        self.enforcer.check_can_create_account()
         serializer.save(workspace=workspace)
 
     def perform_update(self, serializer):
@@ -220,7 +222,7 @@ class AccountViewSet(WorkspaceMixin, viewsets.ModelViewSet):
         instance.delete()
 
 
-class CategoryViewSet(WorkspaceMixin, viewsets.ModelViewSet):
+class CategoryViewSet(PlanEnforcementMixin, WorkspaceMixin, viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
 
@@ -235,6 +237,7 @@ class CategoryViewSet(WorkspaceMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         workspace = self.get_workspace(require_editor=True)
+        self.enforcer.check_can_create_category()
         serializer.save(workspace=workspace)
 
     def perform_update(self, serializer):
@@ -256,7 +259,7 @@ class TransactionViewSet(WorkspaceMixin, viewsets.ModelViewSet):
             Transaction.objects
             .filter(workspace=workspace)
             .select_related("account", "category")
-            .order_by("date")
+            .order_by("-date")
         )
 
         month = self.request.query_params.get("month")
@@ -287,7 +290,7 @@ class TransactionViewSet(WorkspaceMixin, viewsets.ModelViewSet):
         instance.delete()
 
 
-class BudgetViewSet(WorkspaceMixin, viewsets.ModelViewSet):
+class BudgetViewSet(PlanEnforcementMixin, WorkspaceMixin, viewsets.ModelViewSet):
     serializer_class = BudgetSerializer
     permission_classes = [IsAuthenticated]
 
@@ -301,9 +304,11 @@ class BudgetViewSet(WorkspaceMixin, viewsets.ModelViewSet):
         )
 
         month = self.request.query_params.get("month")
+        
         if month:
             if len(month) != 7 or month[4] != "-":
                 raise ValidationError('Invalid month format. Use "YYYY-MM".')
+            self.enforcer.check_can_access_month(month)
             qs = qs.filter(month=month)
 
         category_id = self.request.query_params.get("categoryId")
@@ -379,11 +384,8 @@ class BudgetViewSet(WorkspaceMixin, viewsets.ModelViewSet):
 class AccountMonthConfigView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def _get_workspace(self, request, workspace_id):
-        return resolve_workspace(request.user.id, workspace_id)
-
     def get(self, request, workspace_id):
-        workspace = self._get_workspace(request, workspace_id)
+        workspace = resolve_workspace(request.user.id, workspace_id)
         month = request.query_params.get("month")
         account_id = request.query_params.get("accountId")
 
@@ -410,32 +412,36 @@ class AccountMonthConfigView(APIView):
             raise ValidationError("Account not found.")
 
         try:
-            income_base = Decimal(str(request.data.get("income_base", "0.00")))
             opening_balance = Decimal(str(request.data.get("opening_balance", "0.00")))
         except Exception:
-            raise ValidationError("income_base and opening_balance must be valid decimals.")
+            raise ValidationError("opening_balance must be a valid decimal.")
 
         obj, _ = AccountMonthConfig.objects.update_or_create(
             workspace=workspace,
             month=month,
             account_id=account_id,
-            defaults={
-                "income_base": income_base,
-                "opening_balance": opening_balance,
-            },
+            defaults={"opening_balance": opening_balance},
         )
 
         return Response(AccountMonthConfigSerializer(obj).data)
 
 
-class CashflowReportView(APIView):
+class CashflowReportView(PlanEnforcementMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, workspace_id):
         workspace = resolve_workspace(request.user.id, workspace_id)
+
         month = request.query_params.get("month")
         if not month:
             raise ValidationError('Query param "month" is required (YYYY-MM).')
+
+        # (optional but recommended) validate month format
+        if len(month) != 7 or month[4] != "-":
+            raise ValidationError('Invalid month format. Use "YYYY-MM".')
+
+        # ✅ enforce plan history window here
+        self.enforcer.check_can_access_month(month)
 
         account_id = request.query_params.get("accountId")
         start, end = month_range(month)
@@ -468,7 +474,6 @@ class CashflowReportView(APIView):
 
         days = []
         running = opening
-
         for r in rows:
             income = r["income"] or Decimal("0.00")
             expense = r["expense"] or Decimal("0.00")
@@ -491,7 +496,7 @@ class CashflowReportView(APIView):
         })
 
 
-class BudgetMonitorView(APIView):
+class BudgetMonitorView(PlanEnforcementMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, workspace_id):
@@ -499,6 +504,11 @@ class BudgetMonitorView(APIView):
         month = request.query_params.get("month")
         if not month:
             raise ValidationError('Query param "month" is required (YYYY-MM).')
+        
+        if len(month) != 7 or month[4] != "-":
+            raise ValidationError('Invalid month format. Use "YYYY-MM".')
+
+        self.enforcer.check_can_access_month(month)
 
         account_id = request.query_params.get("accountId")
         mode = request.query_params.get("mode", "leaf")
@@ -544,7 +554,7 @@ class BudgetMonitorView(APIView):
         })
 
 
-class DashboardReportView(APIView):
+class DashboardReportView(PlanEnforcementMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, workspace_id):
@@ -552,6 +562,11 @@ class DashboardReportView(APIView):
         month = request.query_params.get("month")
         if not month:
             raise ValidationError('Query param "month" is required (YYYY-MM).')
+        
+        if len(month) != 7 or month[4] != "-":
+            raise ValidationError('Invalid month format. Use "YYYY-MM".')
+
+        self.enforcer.check_can_access_month(month)
 
         account_id = request.query_params.get("accountId")
         mode = request.query_params.get("mode", "leaf")
@@ -660,4 +675,100 @@ class DashboardReportView(APIView):
                 "rows": budget_rows,
             },
             "recentTransactions": recent_rows,
+        })
+    
+# views.py — add this endpoint
+
+class BudgetPeriodView(PlanEnforcementMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, workspace_id):
+        workspace = resolve_workspace(request.user.id, workspace_id)
+
+        date_from = request.query_params.get("dateFrom")
+        date_to = request.query_params.get("dateTo")
+
+        if not date_from or not date_to:
+            raise ValidationError('"dateFrom" and "dateTo" are required (YYYY-MM-DD).')
+
+        try:
+            from_dt = date.fromisoformat(date_from)
+            to_dt = date.fromisoformat(date_to)
+        except ValueError:
+            raise ValidationError("Invalid date format.")
+
+        if from_dt > to_dt:
+            raise ValidationError("dateFrom must be before dateTo.")
+
+        # Derive month from dateFrom — budget resolution stays month-scoped
+        month = from_dt.strftime("%Y-%m")
+
+        self.enforcer.check_can_access_month(month)
+
+        # Days in the month vs days in this pay period
+        import calendar
+        days_in_month = calendar.monthrange(from_dt.year, from_dt.month)[1]
+        period_days = (to_dt - from_dt).days + 1
+        period_ratio = Decimal(period_days) / Decimal(days_in_month)
+
+        # Get income_base for the month
+        account_id = request.query_params.get("accountId")
+        _, income_base = _get_opening_and_income_base(workspace, month, account_id)
+
+        # Spending within date range only
+        expense_qs = Transaction.objects.filter(
+            workspace=workspace,
+            date__gte=from_dt,
+            date__lte=to_dt,
+            type=TxType.EXPENSE,
+        )
+        if account_id:
+            expense_qs = expense_qs.filter(account_id=account_id)
+
+        # Get monthly budgets and pro-rate them
+        budgets = Budget.objects.filter(
+            workspace=workspace,
+            month=month,
+        ).select_related("category")
+
+        money = DecimalField(max_digits=12, decimal_places=2)
+        spending = (
+            expense_qs
+            .values("category_id")
+            .annotate(spent=Coalesce(Sum("amount"), Value(0), output_field=money))
+        )
+        spending_map = {str(r["category_id"]): r["spent"] for r in spending}
+
+        rows = []
+        for b in budgets:
+            if b.rule_type == BudgetRuleType.FIXED:
+                monthly_budget = b.value
+            else:  # percent
+                monthly_budget = (b.value / Decimal("100")) * income_base
+
+            # Pro-rate: if pay period is 14/28 days, budget is 50% of monthly
+            period_budget = (monthly_budget * period_ratio).quantize(Decimal("0.01"))
+            spent = spending_map.get(str(b.category_id), Decimal("0.00"))
+
+            rows.append({
+                "categoryId": str(b.category_id),
+                "categoryName": b.category.name,
+                "ruleType": b.rule_type,
+                "monthlyBudget": f"{monthly_budget:.2f}",
+                "periodBudget": f"{period_budget:.2f}",
+                "spent": f"{spent:.2f}",
+                "remaining": f"{(period_budget - spent):.2f}",
+                "isExceeded": spent > period_budget,
+                "periodDays": period_days,
+                "periodRatio": f"{period_ratio:.4f}",
+            })
+
+        return Response({
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "month": month,
+            "periodDays": period_days,
+            "daysInMonth": days_in_month,
+            "periodRatio": f"{period_ratio:.4f}",
+            "rows": rows,
         })

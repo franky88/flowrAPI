@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'finance',
+    'billing',
     'rest_framework',
     'corsheaders'
 ]
@@ -138,6 +139,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "EXCEPTION_HANDLER": "billing.exceptions.custom_exception_handler",
 }
 
 CLERK_ISSUER = "intense-wasp-61.clerk.accounts.dev"
