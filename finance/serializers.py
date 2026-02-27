@@ -131,12 +131,12 @@ class BudgetSerializer(serializers.ModelSerializer):
         return category
 
     def get_resolved_amount(self, obj: Budget):
+        if obj.rule_type == BudgetRuleType.FIXED:
+            return str(obj.value)
+
         workspace = self.context.get("workspace")
         if not workspace:
             return None
-
-        if obj.rule_type == BudgetRuleType.FIXED:
-            return obj.value
 
         request = self.context.get("request")
         account_id = (
@@ -145,19 +145,20 @@ class BudgetSerializer(serializers.ModelSerializer):
             else None
         )
 
-        start, end = month_range(obj.month)
-
-        tx_qs = Transaction.objects.filter(
-            workspace=workspace,
-            date__gte=start,
-            date__lt=end,
-            type=TxType.INCOME,
-        )
         if account_id:
-            tx_qs = tx_qs.filter(account_id=account_id)
+            cfg = AccountMonthConfig.objects.filter(
+                workspace=workspace,
+                month=obj.month,
+                account_id=account_id,
+            ).first()
+            income_base = cfg.income_base if cfg else Decimal("0.00")
+        else:
+            agg = AccountMonthConfig.objects.filter(
+                workspace=workspace,
+                month=obj.month,
+            ).aggregate(
+                total=Coalesce(Sum("income_base"), Decimal("0.00"))
+            )
+            income_base = agg["total"] or Decimal("0.00")
 
-        base = tx_qs.aggregate(
-            total=Coalesce(Sum("amount"), Decimal("0.00"))
-        )["total"] or Decimal("0.00")
-
-        return (Decimal(str(base)) * (obj.value / Decimal("100"))).quantize(Decimal("0.01"))
+        return str((obj.value / Decimal("100") * income_base).quantize(Decimal("0.01")))
