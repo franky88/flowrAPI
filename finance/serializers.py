@@ -12,6 +12,18 @@ class AccountSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
 
+    def validate_name(self, value):
+        workspace = self.context.get("workspace")
+        if workspace:
+            qs = Account.objects.filter(workspace=workspace, name=value)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    "An account with this name already exists in the workspace."
+                )
+        return value
+
 
 class CategorySerializer(serializers.ModelSerializer):
     children = serializers.SerializerMethodField()
@@ -108,19 +120,32 @@ class BudgetSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "category_name", "resolved_amount", "created_at", "updated_at"]
 
     def validate(self, attrs):
+        # ── existing value validation ──
         rule_type = attrs.get("rule_type", getattr(self.instance, "rule_type", None))
         value = attrs.get("value", getattr(self.instance, "value", None))
 
-        if rule_type is None or value is None:
-            return attrs
+        if rule_type is not None and value is not None:
+            if rule_type == BudgetRuleType.FIXED:
+                if value <= 0:
+                    raise serializers.ValidationError({"value": "Fixed budget value must be greater than 0."})
+            if rule_type == BudgetRuleType.PERCENT:
+                if value < 0 or value > 100:
+                    raise serializers.ValidationError({"value": "Percent budget value must be between 0 and 100."})
 
-        if rule_type == BudgetRuleType.FIXED:
-            if value <= 0:
-                raise serializers.ValidationError({"value": "Fixed budget value must be greater than 0."})
-
-        if rule_type == BudgetRuleType.PERCENT:
-            if value < 0 or value > 100:
-                raise serializers.ValidationError({"value": "Percent budget value must be between 0 and 100."})
+        # ── new uniqueness check ──
+        workspace = self.context.get("workspace")
+        if workspace:
+            qs = Budget.objects.filter(
+                workspace=workspace,
+                month=attrs.get("month"),
+                category=attrs.get("category"),
+            )
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    "A budget for this category and month already exists."
+                )
 
         return attrs
 
