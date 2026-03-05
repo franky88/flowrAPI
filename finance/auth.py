@@ -6,6 +6,7 @@ from rest_framework import authentication, exceptions
 
 _JWKS = None
 _JWKS_FETCHED_AT = 0
+_KEY_CACHE: dict = {}
 _JWKS_TTL_SECONDS = 60 * 60  # 1 hour cache
 
 
@@ -21,6 +22,26 @@ def _get_jwks():
         _JWKS = requests.get(_jwks_url(), timeout=5).json()
         _JWKS_FETCHED_AT = now
     return _JWKS
+
+def _get_public_key(token: str):
+    global _JWKS, _JWKS_FETCHED_AT, _KEY_CACHE
+    now = int(time.time())
+    
+    if _JWKS is None or (now - _JWKS_FETCHED_AT) > _JWKS_TTL_SECONDS:
+        _JWKS = requests.get(_jwks_url(), timeout=5).json()
+        _JWKS_FETCHED_AT = now
+        _KEY_CACHE = {}  # invalidate key cache on refresh
+
+    header = jwt.get_unverified_header(token)
+    kid = header.get("kid")
+
+    if kid not in _KEY_CACHE:
+        key = next((k for k in _JWKS.get("keys", []) if k.get("kid") == kid), None)
+        if not key:
+            raise exceptions.AuthenticationFailed("Invalid token (kid not found).")
+        _KEY_CACHE[kid] = jwt.algorithms.RSAAlgorithm.from_jwk(key)
+
+    return _KEY_CACHE[kid]
 
 
 class ClerkUser:
@@ -48,7 +69,7 @@ class ClerkJWTAuthentication(authentication.BaseAuthentication):
             if not key:
                 raise exceptions.AuthenticationFailed("Invalid token (kid not found).")
 
-            public_key = jwt.algorithms.RSAAlgorithm.from_jwk(key)
+            public_key = _get_public_key(token)
 
             payload = jwt.decode(
                 token,

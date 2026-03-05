@@ -25,6 +25,14 @@ from finance.utils import month_range, pct_change, prev_month_yyyymm, q2
 from rest_framework.decorators import action
 from dateutil.relativedelta import relativedelta
 
+import time
+from django.db import connection
+
+start = time.time()
+with connection.cursor() as c:
+    c.execute("SELECT 1")
+print(f"DB connection took: {time.time() - start:.3f}s")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
