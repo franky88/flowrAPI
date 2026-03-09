@@ -24,6 +24,9 @@ from finance.services import _get_opening_and_income_base, compute_budget_rows, 
 from finance.utils import month_range, pct_change, prev_month_yyyymm, q2
 from rest_framework.decorators import action
 from dateutil.relativedelta import relativedelta
+from rest_framework.permissions import AllowAny
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.models import User
 
 import time
 from django.db import connection
@@ -75,6 +78,27 @@ class WorkspaceMixin:
         context["workspace"] = self.get_workspace()
         return context
 
+# ---------------------------------------------------------------------------
+# Register + Auth
+# ---------------------------------------------------------------------------
+
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+        if not email or not password:
+            return Response({'error': 'email and password required'}, status=400)
+        if User.objects.filter(email=email).exists():
+            return Response({'error': 'email already registered'}, status=400)
+
+        user = User.objects.create_user(username=email, email=email, password=password)
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        }, status=201)
 
 # ---------------------------------------------------------------------------
 # Workspace Management

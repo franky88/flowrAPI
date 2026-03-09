@@ -25,6 +25,7 @@ class SubscriptionView(APIView):
         return Response({
             "plan": sub.effective_plan,
             "status": sub.status,
+            "current_period_end": sub.current_period_end,
             **usage,
         })
 
@@ -37,7 +38,7 @@ class InternalSubscriptionUpdateView(APIView):
 
     TODO: Wire up real Stripe webhook handler when ready.
     """
-    permission_classes = []  # No Clerk auth — uses shared secret instead
+    permission_classes = []
 
     def patch(self, request, user_id):
         secret = request.headers.get("X-Internal-Secret", "")

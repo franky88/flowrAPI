@@ -1,3 +1,4 @@
+from datetime import timedelta
 from pathlib import Path
 import environ
 
@@ -23,6 +24,7 @@ INSTALLED_APPS = [
     'billing',
     'rest_framework',
     'corsheaders',
+    'rest_framework_simplejwt'
 ]
 
 MIDDLEWARE = [
@@ -96,6 +98,9 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'finance.auth.ClerkJWTAuthentication',
     ],
+    # 'DEFAULT_AUTHENTICATION_CLASSES': [
+    #     'rest_framework_simplejwt.authentication.JWTAuthentication',
+    # ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
@@ -104,3 +109,11 @@ REST_FRAMEWORK = {
 
 CLERK_ISSUER = env('CLERK_ISSUER')
 CLERK_SECRET_KEY = env('CLERK_SECRET_KEY')
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ALGORITHM': 'HS256',  # or RS256 if you want asymmetric
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+}

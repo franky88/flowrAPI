@@ -38,18 +38,18 @@ class Subscription(models.Model):
 
     @property
     def effective_plan(self) -> str:
-        """
-        Always use this instead of reading .plan directly.
-        Downgrades to free if the subscription is not in a paid-active state.
-        past_due gets a grace period until current_period_end.
-        """
         if self.status == StatusChoice.ACTIVE or self.status == StatusChoice.TRIALING:
             return self.plan
 
         if self.status == StatusChoice.PAST_DUE:
             if self.current_period_end and timezone.now() < self.current_period_end:
-                return self.plan  # still within grace period
+                return self.plan
             return PlanChoice.FREE
 
-        # cancelled or anything else
+        if self.status == StatusChoice.CANCELLED:
+            # Keep Pro until period ends
+            if self.current_period_end and timezone.now() < self.current_period_end:
+                return self.plan
+            return PlanChoice.FREE
+
         return PlanChoice.FREE
