@@ -416,6 +416,55 @@ class BudgetViewSet(PlanEnforcementMixin, WorkspaceMixin, viewsets.ModelViewSet)
             status=201,
         )
 
+    @action(detail=False, methods=["post"], url_path="bulk-create")
+    def bulk_create(self, request, workspace_id):
+        workspace = self.get_workspace(require_editor=True)
+
+        items = request.data.get("budgets", [])
+        if not items:
+            raise ValidationError("'budgets' list is required.")
+
+        created = []
+        skipped = 0
+        errors = []
+
+        for item in items:
+            category_id = item.get("category")
+            rule_type = item.get("rule_type")
+            value = item.get("value")
+            month = item.get("month")
+
+            if not all([category_id, rule_type, value, month]):
+                errors.append(f"Skipped incomplete item: {item}")
+                continue
+
+            try:
+                obj, was_created = Budget.objects.get_or_create(
+                    workspace=workspace,
+                    month=month,
+                    category_id=category_id,
+                    defaults={
+                        "rule_type": rule_type,
+                        "value": value,
+                    },
+                )
+                if was_created:
+                    created.append(obj)
+                else:
+                    skipped += 1
+            except Exception as e:
+                errors.append(str(e))
+
+        return Response(
+            {
+                "created": BudgetSerializer(created, many=True).data,
+                "createdCount": len(created),
+                "skippedCount": skipped,
+                "errors": errors,
+            },
+            status=201,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Config + Reports
@@ -826,3 +875,58 @@ class IntelligenceView(WorkspaceMixin, APIView):
         account_id = request.query_params.get("accountId") or None
         data = get_intelligence_report(workspace, month, account_id)
         return Response(data)
+
+class SpendingHistoryView(WorkspaceMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, workspace_id):
+        workspace = self.get_workspace()
+        account_id = request.query_params.get("accountId") or None
+
+        # Build last 3 months
+        from dateutil.relativedelta import relativedelta
+        today = date.today()
+        months = [
+            (today - relativedelta(months=i)).strftime("%Y-%m")
+            for i in range(1, 4)  # last 3 months, not current
+        ]
+
+        results = {}
+        for month in months:
+            start, end = month_range(month)
+            tx_qs = Transaction.objects.filter(
+                workspace=workspace,
+                date__gte=start,
+                date__lt=end,
+                type=TxType.EXPENSE,
+            )
+            if account_id:
+                tx_qs = tx_qs.filter(account_id=account_id)
+
+            spending = (
+                tx_qs
+                .values("category_id", "category__name")
+                .annotate(spent=Sum("amount"))
+            )
+            for row in spending:
+                cat_id = str(row["category_id"])
+                if cat_id not in results:
+                    results[cat_id] = {
+                        "categoryId": cat_id,
+                        "categoryName": row["category__name"],
+                        "months": [],
+                    }
+                results[cat_id]["months"].append({
+                    "month": month,
+                    "spent": float(row["spent"]),
+                })
+
+        # Compute averages
+        output = []
+        for cat_id, data in results.items():
+            total = sum(m["spent"] for m in data["months"])
+            data["average"] = round(total / len(data["months"]), 2)
+            output.append(data)
+
+        output.sort(key=lambda x: x["average"], reverse=True)
+        return Response(output)
